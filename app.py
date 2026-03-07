@@ -8,6 +8,121 @@ import openai
 app = Flask(__name__)
 CORS(app)
 
+# Clé API OpenAI depuis les variables d'environnement Render
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# -------------------------------------------------------------------
+# Endpoint de test : GET /api/generations
+# (utilisé par Adalo pour découvrir les champs)
+# -------------------------------------------------------------------
+@app.route('/api/generations', methods=['GET'])
+def get_generations():
+    return jsonify([
+        {
+            "id": 1,
+            "modele3d_url": "https://via.placeholder.com/400x300?text=Exemple+1",
+            "photo_url": "",
+            "prompt": ""
+        },
+        {
+            "id": 2,
+            "modele3d_url": "https://via.placeholder.com/400x300?text=Exemple+2",
+            "photo_url": "",
+            "prompt": ""
+        }
+    ])
+
+# -------------------------------------------------------------------
+# Endpoint de santé (optionnel)
+# -------------------------------------------------------------------
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "ok", "timestamp": time.time()})
+
+# -------------------------------------------------------------------
+# Endpoint principal : POST /api/generate
+# Reçoit photo_url et prompt, appelle GPT-4V, retourne une URL d'image
+# -------------------------------------------------------------------
+@app.route('/api/generate', methods=['POST'])
+def generate():
+    # Récupérer les données envoyées par Adalo
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Données JSON attendues"}), 400
+
+    photo_url = data.get('photo_url')
+    prompt = data.get('prompt')
+
+    if not photo_url or not prompt:
+        return jsonify({"error": "Les champs 'photo_url' et 'prompt' sont requis"}), 400
+
+    # --- Appel à GPT-4V ---
+    try:
+        # Construction du message pour GPT-4V
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Voici une photo et une description : '{prompt}'. Analyse l'image pour comprendre l'objet à concevoir. Décris ses dimensions, sa fonction, les éléments de fixation, etc. Sois technique et précis. Réponds en JSON avec les clés : objet, fonction, dimensions, contraintes, matériau_suggéré."
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": photo_url
+                    }
+                ]
+            }
+        ]
+
+        # Appel à l'API OpenAI (modèle gpt-4-vision-preview)
+        response = openai.ChatCompletion.create(
+            model="gpt-4-vision-preview",
+            messages=messages,
+            max_tokens=500
+        )
+
+        # Extraire la réponse textuelle
+        gpt_output = response.choices[0].message.content
+
+        # Tenter de parser en JSON (au cas où GPT renvoie du JSON)
+        try:
+            analysis = json.loads(gpt_output)
+        except json.JSONDecodeError:
+            analysis = {"description": gpt_output}
+
+    except Exception as e:
+        # En cas d'erreur (clé invalide, quota dépassé, etc.)
+        print(f"Erreur GPT: {e}")
+        analysis = {"description": f"Erreur lors de l'analyse GPT : {str(e)}"}
+
+    # --- Génération d'une image placeholder (simulation) ---
+    # Ici tu pourras plus tard remplacer par un appel à Meshy
+    simulation_image_url = "https://via.placeholder.com/400x300?text=Modele+3D+genere"
+
+    # Retourner la réponse à Adalo
+    return jsonify({
+        "status": "success",
+        "modele3d_url": simulation_image_url,
+        "analysis": analysis,
+        "message": "Génération terminée (simulation)"
+    })
+
+# -------------------------------------------------------------------
+# Point d'entrée du serveur
+# -------------------------------------------------------------------
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)import os
+import json
+import time
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import openai
+
+app = Flask(__name__)
+CORS(app)
+
 # Clé API OpenAI depuis les variables d'environnement
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
@@ -109,3 +224,4 @@ if __name__ == '__main__':
     # Render fournit le port via l'environnement
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+
